@@ -55,9 +55,24 @@ uv run panl positions check --model Qwen/Qwen2.5-0.5B-Instruct
 uv run panl positions snapshot --model Qwen/Qwen2.5-0.5B-Instruct \
   --out tests/fixtures/positions_qwen2_5_0_5b_instruct.json
 
-# E0: collect, sweep the patching grid, check the gates. Exits non-zero if a gate fails.
-uv run panl e0 run --config configs/experiment/e0_smoke.yaml    # 0.5B, 32 blocks
-uv run panl e0 run --config configs/experiment/e0_qwen7b.yaml   # 7B, all train blocks
+# Score every fact against the model *before* building blocks: is the answer format
+# on-policy, and does the model actually find any of these facts hard?
+uv run panl score --config configs/experiment/e0_qwen7b.yaml --out outputs/scores.parquet
+
+# Route ablation: how does the answer reach the confidence read-out? This is the primary
+# localization evidence -- see "Redundant routes" below for why the patching sweep is not.
+uv run panl e0 routes --config configs/experiment/e0_qwen7b.yaml
+
+# The E3 controls for that result: both directions, and three wrong-content sources.
+uv run panl e0 controls --config configs/experiment/e0_qwen7b.yaml --start-layer 16
+
+# The original patching sweep. Superseded, kept because it is the evidence for the trap.
+uv run panl e0 run --config configs/experiment/e0_qwen7b.yaml
+
+# Re-render either report from saved parquet: no GPU, no model. A change to how a result is
+# summarized must never cost GPU time twice.
+uv run panl e0 report        outputs/<run> --config configs/experiment/e0_qwen7b.yaml
+uv run panl e0 routes-report outputs/<run> --config configs/experiment/e0_qwen7b.yaml
 ```
 
 Tests that need a tokenizer from the Hugging Face hub are marked; skip them with
@@ -94,6 +109,19 @@ computed. The patching sweep re-runs the model and patches from live bf16 activa
 **CC is a harness check, not evidence.** Patching the confidence colon transplants the
 read-out state itself, so it *must* score near 1. It is in the sweep to catch a broken
 harness, and the E0 gate fails if PANL ever beats it.
+
+**Redundant routes make single-position patching lie.** The answer reaches the confidence
+read-out two ways — directly, and through PANL — and *either alone* carries ~90% of the
+confidence gap. So patching PANL in the intact model reports a null no matter what PANL
+contains: whatever the patch removes, the direct route puts straight back. Localizing a
+"cache" requires severing the bypass first (`panl e0 routes`), and then the same patch flips
+96% of decisions. The full account is in [docs/stage-1-findings.md](docs/stage-1-findings.md).
+
+**Sufficient is not necessary.** A patch-under-isolation result is evidence about what a
+position *carries*. It is not proof that the intact model routes through it — the experiment
+forces the model to use PANL and then observes that it does. The direct route carries 88% of
+the gap on its own, so PANL is sufficient and redundant, and the code says so where it would
+otherwise be tempting to overclaim.
 
 ## Target models
 

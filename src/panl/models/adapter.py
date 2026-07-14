@@ -209,17 +209,36 @@ class HookedModelAdapter:
             raise KeyError(msg)
         return name
 
-    def _key_mask(self, batch: PromptBatch, keys: str) -> torch.Tensor:
-        """[batch, seq] boolean mask of the key positions named by `keys`."""
-        seq = batch.seq_len
-        arange = torch.arange(seq, device=self.device).unsqueeze(0)
-        if keys == "answer":
+    def _position_mask(self, batch: PromptBatch, name: str) -> torch.Tensor:
+        """[batch, seq] boolean mask of a named set of positions.
+
+        Sets, not single indices. The first version of the knockout named one query per edge
+        and assumed the only token between PANL and CC was PANL+1. It is not: Qwen splits
+        "Confidence" into "Conf" + "idence", so there is an *unnamed* token that can see the
+        answer and that CC reads. Every knockout leaked through it. Position sets exist so
+        that a route is cut by what it *is* -- everything after PANL -- rather than by a list
+        of names that a tokenizer can silently invalidate.
+        """
+        arange = torch.arange(batch.seq_len, device=self.device).unsqueeze(0)
+        panl = batch.positions["PANL"].unsqueeze(1)
+        cc = batch.positions["CC"].unsqueeze(1)
+
+        if name == "answer":
             start = batch.answer_spans[:, 0].unsqueeze(1)
             end = batch.answer_spans[:, 1].unsqueeze(1)
             return (arange >= start) & (arange < end)
-        if keys in batch.positions:
-            return arange == batch.positions[keys].unsqueeze(1)
-        msg = f"unknown key set {keys!r}"
+        if name == "after_answer":
+            # PANL and everything after it: every query that can see the answer at all.
+            return arange >= panl
+        if name == "post_panl":
+            # Everything strictly after PANL, up to and including CC.
+            return arange > panl
+        if name == "suffix_before_cc":
+            # The confidence word: however many tokens the tokenizer splits it into.
+            return (arange > panl) & (arange < cc)
+        if name in batch.positions:
+            return arange == batch.positions[name].unsqueeze(1)
+        msg = f"unknown position set {name!r}"
         raise KeyError(msg)
 
     @torch.no_grad()
@@ -243,18 +262,7 @@ class HookedModelAdapter:
         get there at all* -- and its answer does not depend on how steep the read-out is.
         """
         batch = batch.to(self.device)
-        rows = torch.arange(batch.size, device=self.device)
-        prepared = [(batch.positions[query], self._key_mask(batch, keys)) for query, keys in edges]
-
-        def knock(pattern: torch.Tensor, hook: Any) -> torch.Tensor:
-            del hook
-            for query_index, key_mask in prepared:
-                weights = pattern[rows, :, query_index, :]  # [batch, head, key]
-                weights = weights.masked_fill(key_mask.unsqueeze(1), 0.0)
-                weights = weights / weights.sum(-1, keepdim=True).clamp_min(1e-9)
-                pattern[rows, :, query_index, :] = weights
-            return pattern
-
+        knock = self._make_knockout(batch, edges)
         chosen = list(layers) if layers is not None else list(range(self.n_layers))
         logits = self._model.run_with_hooks(
             batch.input_ids,
@@ -262,6 +270,35 @@ class HookedModelAdapter:
             fwd_hooks=[(self._attn_hook(layer), knock) for layer in chosen],
         )
         return self._margin_at_cc(logits, batch)
+
+    def _make_knockout(self, batch: PromptBatch, edges: Sequence[tuple[str, str]]) -> Any:
+        """An attention hook that zeroes every (query in Q, key in K) pair and renormalizes.
+
+        Both sides are *sets of positions*, not single indices. The first version of this named
+        one query per edge and assumed PANL+1 was the only token between PANL and CC. It is
+        not: Qwen splits "Confidence" into "Conf" + "idence", so an unnamed token sits at CC-1,
+        it can see the answer, and CC reads it. Every knockout leaked through that token, and
+        every route number computed before this fix was contaminated.
+
+        Zeroing the weights and rescaling the affected query rows is equivalent to deleting
+        those keys before the softmax. Rows that no query mask touches are left byte-identical
+        rather than divided by their own sum, so an unrelated position cannot drift.
+        """
+        prepared = [
+            (self._position_mask(batch, query), self._position_mask(batch, keys))
+            for query, keys in edges
+        ]
+
+        def knock(pattern: torch.Tensor, hook: Any) -> torch.Tensor:
+            del hook
+            for query_mask, key_mask in prepared:
+                cut = query_mask[:, None, :, None] & key_mask[:, None, None, :]
+                zeroed = pattern.masked_fill(cut, 0.0)
+                renormalized = zeroed / zeroed.sum(-1, keepdim=True).clamp_min(1e-9)
+                pattern = torch.where(query_mask[:, None, :, None], renormalized, pattern)
+            return pattern
+
+        return knock
 
     @torch.no_grad()
     def run_with_patch(
@@ -324,19 +361,7 @@ class HookedModelAdapter:
         ]
 
         if edges:
-            prepared = [
-                (batch.positions[query], self._key_mask(batch, keys)) for query, keys in edges
-            ]
-
-            def knock(pattern: torch.Tensor, hook: Any) -> torch.Tensor:
-                del hook
-                for query_index, key_mask in prepared:
-                    weights = pattern[rows, :, query_index, :]
-                    weights = weights.masked_fill(key_mask.unsqueeze(1), 0.0)
-                    weights = weights / weights.sum(-1, keepdim=True).clamp_min(1e-9)
-                    pattern[rows, :, query_index, :] = weights
-                return pattern
-
+            knock = self._make_knockout(batch, edges)
             hooks += [(self._attn_hook(layer_i), knock) for layer_i in range(self.n_layers)]
 
         logits = self._model.run_with_hooks(batch.input_ids, return_type="logits", fwd_hooks=hooks)

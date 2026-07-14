@@ -90,6 +90,28 @@ class TestRealTokenizer:
         classes = resolve_confidence_classes(tokenizer)
         assert classes.high_token_id != classes.low_token_id
 
+    def test_the_confidence_word_is_more_than_one_token_here(
+        self, tokenizer: FastTokenizer, renderer: PromptRenderer
+    ) -> None:
+        """Documents the fact that broke the route ablation, so nobody re-assumes otherwise.
+
+        Qwen tokenizes "Confidence" as "Conf" + "idence". So the span between PANL and CC is
+        *two* tokens, only the first of which (PANL+1) has a name. Any intervention that
+        enumerates the post-answer tokens by name will miss the other one -- it can see the
+        answer, CC reads it, and the route stays open. Interventions must address the span,
+        not the names: see `_position_mask("suffix_before_cc")`.
+        """
+        prompt = renderer.render("What is the capital of France?", "Paris")
+        resolved = resolve_positions(tokenizer, prompt)
+        span = resolved.indices["CC"] - resolved.indices["PANL"] - 1
+        assert span >= 1
+        if span == 1:
+            pytest.skip("this tokenizer emits a single confidence-word token; nothing to guard")
+        unnamed = set(range(resolved.indices["PANL"] + 1, resolved.indices["CC"])) - {
+            resolved.indices["PANL1"]
+        }
+        assert unnamed, "expected at least one unnamed token between PANL+1 and CC"
+
 
 @pytest.fixture(scope="module")
 def stored() -> dict[str, Any]:

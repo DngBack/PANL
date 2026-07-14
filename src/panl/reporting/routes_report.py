@@ -35,15 +35,49 @@ def render_routes(
         "read-out cannot drive it to zero.[/]"
     )
 
+    has_subsets = "subset" in conditions
+    full = conditions[conditions["subset"] == "all"] if has_subsets else conditions
+    matched = conditions[conditions["subset"] == "length_matched"] if has_subsets else None
+
     table = Table("condition", "gap (logits)", "95% CI", "% of clean")
-    for row in conditions.itertuples():
-        table.add_row(
+    if matched is not None and len(matched):
+        table.add_column("% of clean (length-matched)")
+
+    for row in full.itertuples():
+        cells = [
             str(row.condition),
             f"{row.gap:+.2f}",
             f"[{row.ci_low:+.2f}, {row.ci_high:+.2f}]",
             f"{row.share_of_clean:.0%}",
-        )
+        ]
+        if matched is not None and len(matched):
+            peer = matched[matched["condition"] == row.condition]
+            cells.append(f"{float(peer['share_of_clean'].iloc[0]):.0%}" if len(peer) else "-")
+        table.add_row(*cells)
     console.print(table)
+
+    if matched is not None and len(matched):
+        n_matched = int(matched["n_blocks"].iloc[0])
+        console.print(
+            f"  [dim]length-matched = the {n_matched} blocks whose two answers tokenize to the "
+            f"same length, so\n  matched and crossed prompts are the same length and CC sits at "
+            f"the same absolute position.[/]"
+        )
+        artefact = bool(gates["floor_is_a_length_artefact"])
+        floor, floor_lm = gates["gap_floor"], gates["gap_floor_length_matched"]
+        if artefact:
+            console.print(
+                f"\n  [green]The {floor:.0%} floor is a length artefact.[/] With answer lengths "
+                f"matched it falls to {floor_lm:.0%}:\n  the residual gap was rotary position, "
+                f"not answer content reaching CC by some other path."
+            )
+        else:
+            console.print(
+                f"\n  [yellow]The floor survives length matching[/] ({floor:.0%} -> "
+                f"{floor_lm:.0%}). Answer information is still\n  reaching CC after every known "
+                f"route is severed. There is a path we have not found, and\n  finding it is now "
+                f"the most important open question in this experiment."
+            )
 
     cumulative = bool(summary["cumulative"].iloc[0]) if "cumulative" in summary else False
     span = "L..end" if cumulative else "one layer"

@@ -378,6 +378,80 @@ def e0_routes(
         raise typer.Exit(code=1)
 
 
+@e0_app.command("controls")
+def e0_controls(
+    config: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)],
+    start_layer: Annotated[int, typer.Option("--start-layer")] = 16,
+    run_id: Annotated[str | None, typer.Option("--run-id")] = None,
+) -> None:
+    """Run the E3 controls for the isolated PANL patch: both directions, three wrong sources.
+
+    `--start-layer` should be the read cliff from `e0 routes` (16 on Qwen2.5-7B): the last
+    start layer at which freezing PANL still transplants the decision.
+    """
+    from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn
+
+    from panl.artifacts.manifest import build_manifest, write_manifest
+    from panl.config import load_experiment_config
+    from panl.data.schema import read_table
+    from panl.experiments.collect import collect
+    from panl.experiments.controls import (
+        evaluate_control_gates,
+        isolated_controls,
+        summarize_controls,
+    )
+    from panl.models.adapter import HookedModelAdapter
+    from panl.reporting.controls_report import render_controls
+
+    cfg = load_experiment_config(config)
+    run = run_id or f"controls-{cfg.model.role}"
+    out_dir = cfg.output_root / run
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    quadruples = read_table(cfg.quadruples).to_pandas()
+    model = HookedModelAdapter.load(cfg.model)
+    console.print(f"[bold]{cfg.model.model_id}[/] | run [bold]{run}[/] -> {out_dir}")
+
+    columns = (
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+    )
+    with Progress(*columns, console=console) as progress:
+        collected = collect(model, quadruples, cfg, activations_path=None, progress=progress)
+        controls = isolated_controls(
+            model,
+            collected.behavior,
+            collected.resolved,
+            cfg,
+            start_layer=start_layer,
+            progress=progress,
+        )
+
+    summary = summarize_controls(controls, cfg)
+    gates = evaluate_control_gates(summary)
+
+    controls.to_parquet(out_dir / "controls.parquet", index=False)
+    summary.to_parquet(out_dir / "controls_summary.parquet", index=False)
+    render_controls(console, summary, gates, start_layer=start_layer)
+
+    write_manifest(
+        build_manifest(
+            command="e0 controls",
+            config=cfg,
+            config_path=config,
+            artifacts={"controls": out_dir / "controls.parquet"},
+            payload={"gates": gates, "start_layer": start_layer},
+        ),
+        out_dir / "manifest.json",
+    )
+    console.print(f"\nwrote {out_dir}/")
+
+    if not gates["overall"]:
+        raise typer.Exit(code=1)
+
+
 @e0_app.command("routes-report")
 def e0_routes_report(
     run_dir: Annotated[Path, typer.Argument(exists=True, file_okay=False)],

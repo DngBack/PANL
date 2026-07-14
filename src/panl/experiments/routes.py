@@ -46,29 +46,41 @@ from panl.models.positions import ResolvedPositions
 
 Edge = tuple[str, str]
 
-#: Sever the two routes that bypass PANL, leaving `answer -> PANL -> CC` as the only carrier.
-ISOLATE_PANL: tuple[Edge, ...] = (("CC", "answer"), ("PANL1", "answer"))
+# The prompt ends `... <answer tokens> \n Confidence :`, and the tokens that can see the answer
+# at all are exactly PANL and everything after it. How many tokens that *is* depends on the
+# tokenizer -- Qwen splits "Confidence" into "Conf" + "idence", so there are four, not three.
+#
+# The first version of this file named those tokens individually (CC, PANL1) and thereby left
+# the unnamed "idence" token uncut. It can see the answer, CC reads it, and so every knockout
+# leaked through it: `only via PANL` was not isolating PANL, and the numbers it produced were
+# wrong. Routes are now cut by *what a position is* -- everything after PANL -- so a tokenizer
+# that splits the confidence word differently cannot silently reopen a path.
+#
+#   answer  ->  PANL  ->  [suffix_before_cc]  ->  CC
+#      \___________________________________________^   (the direct route)
+#
+#: Sever every bypass, leaving `answer -> PANL -> ... -> CC` as the only carrier. PANL keeps
+#: its view of the answer; nothing after PANL does.
+ISOLATE_PANL: tuple[Edge, ...] = (("post_panl", "answer"),)
 
-#: Named route ablations. Each cuts a set of attention edges; the question is always whether
-#: the matched-vs-crossed confidence gap survives.
+#: Named route ablations. Each cuts a set of (query set, key set) pairs; the question is always
+#: whether the matched-vs-crossed confidence gap survives.
 ROUTE_CONDITIONS: dict[str, tuple[Edge, ...]] = {
     "clean": (),
     "cut CC<-answer": (("CC", "answer"),),
     "cut CC<-PANL": (("CC", "PANL"),),
     "cut PANL<-answer": (("PANL", "answer"),),
-    "cut PANL1<-answer": (("PANL1", "answer"),),
-    # Only `answer -> PANL -> CC` remains.
+    "cut suffix<-answer": (("suffix_before_cc", "answer"),),
+    # Only `answer -> PANL -> ... -> CC` remains: PANL still sees the answer, nothing after it
+    # does, so any answer information reaching CC must have gone through PANL.
     "only via PANL": ISOLATE_PANL,
-    # Only the direct edge `answer -> CC` remains.
-    "only direct": (("PANL", "answer"), ("PANL1", "answer"), ("CC", "PANL")),
-    # Nothing remains. The gap must collapse; this is the check on the knockout itself, and
-    # its residual is the floor every other condition should be read against.
-    "cut everything": (
-        ("CC", "answer"),
-        ("PANL1", "answer"),
-        ("PANL", "answer"),
-        ("CC", "PANL"),
-    ),
+    # Only the direct edge `answer -> CC` remains: CC still sees the answer, but PANL and the
+    # confidence-word tokens are blind to it, so they can carry nothing.
+    "only direct": (("PANL", "answer"), ("suffix_before_cc", "answer")),
+    # Nothing remains: no query at or after PANL can see the answer. The gap must collapse to
+    # ~0. This is the check on the knockout itself -- if it does not, no other row means
+    # anything, and the previous version of this file failed it at 19%.
+    "cut everything": (("after_answer", "answer"),),
 }
 
 
@@ -77,6 +89,32 @@ class RouteResult:
     conditions: pd.DataFrame
     isolated_patching: pd.DataFrame
     gates: dict[str, Any]
+
+
+def length_matched_blocks(behavior: pd.DataFrame, resolved: list[ResolvedPositions]) -> set[str]:
+    """Blocks whose two answers tokenize to the same number of tokens.
+
+    The `cut everything` condition leaves a 19% residual gap even though no route from the
+    answer to CC survives. The obvious suspect is prompt length: a block's two answers usually
+    tokenize to different lengths, so CC sits at a different absolute position in the matched
+    and crossed prompts, and rotary embeddings make that a real difference the model can see —
+    without any answer *content* reaching it.
+
+    Restricting to blocks whose answers are the same length removes that confound entirely:
+    for a fixed question, the matched and crossed prompts are then token-for-token the same
+    length, and the within-block gap cannot be a position effect.
+
+    If the floor drops to ~0 on this subset, the residual was a length artefact. **If it does
+    not, there is a route we have not found**, and that is the most important open question in
+    the experiment — not something to explain away.
+    """
+    lengths = behavior.copy()
+    lengths["n_answer_tokens"] = [resolved[i].n_answer_tokens for i in range(len(behavior))]
+    keep: set[str] = set()
+    for block_id, group in lengths.groupby("block_id"):
+        if group["n_answer_tokens"].nunique() == 1:
+            keep.add(str(block_id))
+    return keep
 
 
 def _block_gaps(behavior: pd.DataFrame, margins: np.ndarray) -> np.ndarray:
@@ -100,7 +138,12 @@ def route_ablation(
     *,
     progress: Progress | None = None,
 ) -> pd.DataFrame:
-    """Run every route condition and report the surviving confidence gap."""
+    """Run every route condition and report the surviving confidence gap.
+
+    Each condition is scored on two block sets from the same forward passes: every block, and
+    only the length-matched ones. The second costs no extra GPU time and is the control that
+    tells us whether the 19% floor is a position artefact or an unfound route.
+    """
     batches = list(make_batches(resolved, max_batch_size=config.batch_size))
     task = (
         progress.add_task("routes", total=len(ROUTE_CONDITIONS) * len(batches))
@@ -108,8 +151,13 @@ def route_ablation(
         else None
     )
 
+    subsets: dict[str, set[str] | None] = {
+        "all": None,
+        "length_matched": length_matched_blocks(behavior, resolved),
+    }
+
     records: list[dict[str, Any]] = []
-    clean_gap: float | None = None
+    clean_gap: dict[str, float] = {}
 
     for name, edges in ROUTE_CONDITIONS.items():
         margins = np.full(len(behavior), np.nan)
@@ -124,24 +172,34 @@ def route_ablation(
             if progress and task is not None:
                 progress.advance(task)
 
-        gaps = _block_gaps(behavior, margins)
-        estimate = block_bootstrap(gaps, n_boot=config.n_boot, seed=config.seed)
-        if clean_gap is None:
-            clean_gap = estimate.mean
+        for subset_name, keep in subsets.items():
+            mask = (
+                np.ones(len(behavior), dtype=bool)
+                if keep is None
+                else behavior["block_id"].isin(keep).to_numpy()
+            )
+            if not mask.any():
+                continue
+            gaps = _block_gaps(behavior[mask], margins[mask])
+            estimate = block_bootstrap(gaps, n_boot=config.n_boot, seed=config.seed)
+            clean_gap.setdefault(subset_name, estimate.mean)
 
-        records.append(
-            {
-                "condition": name,
-                "edges_cut": len(edges),
-                "gap": estimate.mean,
-                "ci_low": estimate.ci_low,
-                "ci_high": estimate.ci_high,
-                "share_of_clean": estimate.mean / clean_gap if clean_gap else float("nan"),
-                "mean_matched": float(np.mean(margins[behavior["matched"].to_numpy()])),
-                "mean_crossed": float(np.mean(margins[~behavior["matched"].to_numpy()])),
-                "n_blocks": estimate.n_blocks,
-            }
-        )
+            matched = behavior["matched"].to_numpy() & mask
+            crossed = (~behavior["matched"].to_numpy()) & mask
+            records.append(
+                {
+                    "condition": name,
+                    "subset": subset_name,
+                    "edges_cut": len(edges),
+                    "gap": estimate.mean,
+                    "ci_low": estimate.ci_low,
+                    "ci_high": estimate.ci_high,
+                    "share_of_clean": estimate.mean / clean_gap[subset_name],
+                    "mean_matched": float(np.mean(margins[matched])),
+                    "mean_crossed": float(np.mean(margins[crossed])),
+                    "n_blocks": estimate.n_blocks,
+                }
+            )
     return pd.DataFrame(records)
 
 
@@ -306,24 +364,38 @@ def evaluate_route_gates(conditions: pd.DataFrame, isolated: pd.DataFrame) -> di
     answerable: does PANL *carry* the signal, and when it is the only carrier, does patching
     it *drive* the read-out?
     """
-    by_name = conditions.set_index("condition")
 
-    def share(name: str) -> float:
-        return float(by_name.loc[name, "share_of_clean"]) if name in by_name.index else float("nan")
+    def share(name: str, subset: str = "all") -> float:
+        rows = conditions[conditions["condition"] == name]
+        if "subset" in conditions:
+            rows = rows[rows["subset"] == subset]
+        return float(rows["share_of_clean"].iloc[0]) if len(rows) else float("nan")
 
     floor = share("cut everything")
     via_panl = share("only via PANL")
     direct = share("only direct")
+
+    # The floor with the length confound removed. If this is still large, the residual gap is
+    # not a position artefact and there is a route we have not found.
+    floor_matched = share("cut everything", subset="length_matched")
 
     panl = isolated[isolated["position"] == "PANL"]
     controls = isolated[isolated["position"].isin(["PANL1", "AC"])]
     peak = panl.loc[panl["effect"].idxmax()] if len(panl) else None
     cliff = read_cliff(isolated, "PANL")
 
-    knockout_works = bool(floor < 0.5)
+    # With every query at or after PANL blind to the answer, no information can reach CC and
+    # the gap must be ~0. A residual here is not a "floor" to read other conditions against --
+    # it means a route is still open, which is exactly what the unnamed "idence" token was.
+    knockout_works = bool(floor < 0.05)
     panl_sufficient = bool(via_panl > 0.5)
     panl_drives = bool(peak is not None and peak["flip_rate"] >= 0.5)
     controls_flat = bool(len(controls) == 0 or controls["flip_rate"].max() < 0.1)
+    # Not part of `overall`: this diagnoses *why* the floor is where it is. A high floor even
+    # on length-matched blocks is a finding, not a failure -- but it must be surfaced.
+    floor_is_a_length_artefact = bool(
+        np.isnan(floor_matched) or floor_matched < 0.5 * max(floor, 1e-6)
+    )
 
     return {
         "knockout_collapses_the_gap": knockout_works,
@@ -332,6 +404,8 @@ def evaluate_route_gates(conditions: pd.DataFrame, isolated: pd.DataFrame) -> di
         "controls_stay_flat": controls_flat,
         "overall": knockout_works and panl_sufficient and panl_drives and controls_flat,
         "gap_floor": floor,
+        "gap_floor_length_matched": floor_matched,
+        "floor_is_a_length_artefact": floor_is_a_length_artefact,
         "share_only_via_panl": via_panl,
         "share_only_direct": direct,
         # The headline, and the thing the original E0 gate got wrong: PANL is sufficient but

@@ -15,28 +15,42 @@ from panl.experiments.routes import (
 
 
 class TestRouteConditions:
-    def test_isolating_panl_cuts_exactly_the_two_bypass_routes(self) -> None:
-        """The answer can reach CC directly, via PANL, or via PANL+1. Isolating PANL means
-        cutting the other two, and only those -- cutting more would starve PANL as well."""
-        assert set(ISOLATE_PANL) == {("CC", "answer"), ("PANL1", "answer")}
+    """Routes are cut by position *sets*, never by a list of named tokens.
+
+    The bug this guards against, which was live and silently corrupted every route number:
+    Qwen splits "Confidence" into "Conf" + "idence", so the token at CC-1 has no name in
+    POSITION_NAMES. Cutting `("PANL1", "answer")` left it uncut; it can see the answer and CC
+    reads it, so `only via PANL` was not isolating PANL at all.
+    """
+
+    def test_isolating_panl_blinds_everything_after_panl_not_a_named_list(self) -> None:
+        assert set(ISOLATE_PANL) == {("post_panl", "answer")}
+        # PANL itself must keep its view of the answer, or it could carry nothing.
         assert ("PANL", "answer") not in ISOLATE_PANL
+
+    def test_no_condition_names_an_individual_suffix_token(self) -> None:
+        """PANL1 as a *query* is exactly the mistake: it names one token of a word whose
+        tokenization is not ours to choose."""
+        for name, edges in ROUTE_CONDITIONS.items():
+            queries = {query for query, _ in edges}
+            assert "PANL1" not in queries, f"{name!r} cuts a named suffix token, not the set"
 
     def test_only_via_panl_leaves_panl_fed(self) -> None:
         edges = ROUTE_CONDITIONS["only via PANL"]
         assert ("PANL", "answer") not in edges  # PANL still sees the answer
         assert ("CC", "PANL") not in edges  # and CC still sees PANL
 
-    def test_only_direct_starves_panl_completely(self) -> None:
-        edges = ROUTE_CONDITIONS["only direct"]
+    def test_only_direct_starves_panl_and_the_whole_suffix(self) -> None:
+        edges = set(ROUTE_CONDITIONS["only direct"])
         assert ("PANL", "answer") in edges  # PANL cannot see the answer
-        assert ("CC", "PANL") in edges  # and CC cannot see PANL
+        assert ("suffix_before_cc", "answer") in edges  # nor can the confidence word
         assert ("CC", "answer") not in edges  # only the direct edge survives
 
-    def test_cut_everything_severs_every_route(self) -> None:
-        """The floor condition. If the gap does not collapse here, the knockout is not
-        working and no other row in the table means anything."""
-        edges = set(ROUTE_CONDITIONS["cut everything"])
-        assert {("CC", "answer"), ("PANL1", "answer"), ("PANL", "answer"), ("CC", "PANL")} <= edges
+    def test_cut_everything_blinds_every_query_that_could_see_the_answer(self) -> None:
+        """The floor condition, and the check on the knockout itself. The only queries that
+        can see the answer at all are PANL and everything after it, so blinding that set must
+        drive the gap to ~0. The old, named-token version left it at 19%."""
+        assert set(ROUTE_CONDITIONS["cut everything"]) == {("after_answer", "answer")}
 
     def test_clean_cuts_nothing(self) -> None:
         assert ROUTE_CONDITIONS["clean"] == ()
@@ -64,9 +78,17 @@ def _isolated(panl_flip: float, control_flip: float, effect: float = 0.5) -> pd.
 
 
 class TestRouteGates:
-    def test_the_observed_qwen_result_passes(self) -> None:
-        gates = evaluate_route_gates(_conditions(0.19, 0.97, 0.88), _isolated(0.96, 0.00))
+    def test_a_clean_result_passes(self) -> None:
+        gates = evaluate_route_gates(_conditions(0.01, 0.97, 0.88), _isolated(0.96, 0.00))
         assert gates["overall"]
+
+    def test_the_old_contaminated_result_is_now_rejected(self) -> None:
+        """The 19% floor the first route ablation reported was never a floor -- it was the
+        answer still reaching CC through the unnamed "idence" token. The gate must refuse it,
+        because every other number in that table was measured with the same leak open."""
+        gates = evaluate_route_gates(_conditions(0.19, 0.97, 0.88), _isolated(0.96, 0.00))
+        assert not gates["knockout_collapses_the_gap"]
+        assert not gates["overall"]
 
     def test_panl_is_reported_as_sufficient_but_not_necessary(self) -> None:
         """The headline. The direct route carries 88% of the gap on its own, so the intact

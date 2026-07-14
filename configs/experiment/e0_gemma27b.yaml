@@ -1,0 +1,25 @@
+# Cross-family replication. Gemma-3-27B is gated: the worker needs a Hugging Face token in the
+# environment or the standard cache. Never put the token in this file.
+#
+# 27B in bf16 is ~54 GB, which fits on one H200. Batch size is halved because the residual
+# stream is wider and the activation cache scales with it.
+experiment: e0
+
+model:
+  model_id: google/gemma-3-27b-it
+  revision: main
+  dtype: bfloat16
+  prompt_style: chat
+  role: replication
+
+quadruples: data/processed/quadruples.parquet
+splits: [train]
+n_blocks: null
+batch_size: 16
+
+patch_layers: []
+patch_positions: [AC, LAT, PANL, PANL1, CC]
+
+seed: 20260714
+n_boot: 10000
+output_root: outputs

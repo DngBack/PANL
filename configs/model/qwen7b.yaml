@@ -1,0 +1,6 @@
+# Primary model for E0-E4.
+model_id: Qwen/Qwen2.5-7B-Instruct
+revision: main
+dtype: bfloat16
+prompt_style: chat
+role: primary

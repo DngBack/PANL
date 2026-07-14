@@ -1,0 +1,25 @@
+# E0 smoke on the 0.5B model: 32 blocks, per plan section E0 ("32 blocks for CI/smoke").
+#
+# Validates positions, hooks, schemas and the Zarr store end to end. A pass here says the
+# harness works; it says nothing about the primary model, and no result from this config is
+# ever reported.
+experiment: e0
+
+model:
+  model_id: Qwen/Qwen2.5-0.5B-Instruct
+  revision: main
+  dtype: bfloat16
+  prompt_style: chat
+  role: smoke
+
+quadruples: data/processed/quadruples.parquet
+splits: [train]
+n_blocks: 32
+batch_size: 32
+
+patch_layers: []
+patch_positions: [AC, LAT, PANL, PANL1, CC]
+
+seed: 20260714
+n_boot: 10000
+output_root: outputs

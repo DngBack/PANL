@@ -32,6 +32,9 @@ dependencies = [
     "zarr>=3.0",
 ]
 
+[project.scripts]
+panl = "panl.cli:app"
+
 [dependency-groups]
 dev = [
     "mypy>=1.16",
@@ -39,6 +42,7 @@ dev = [
     "pytest>=8.4",
     "pytest-cov>=6.2",
     "ruff>=0.12",
+    "types-pyyaml>=6.0.12.20260518",
 ]
 analysis = [
     "ipykernel>=6.30",
@@ -56,6 +60,10 @@ packages = ["src/panl"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
+markers = [
+    "tokenizer: needs a real tokenizer from the Hugging Face hub (network or warm cache)",
+    "gpu: needs a CUDA device and loads real model weights",
+]
 
 [tool.ruff]
 line-length = 100
@@ -68,4 +76,11 @@ select = ["E", "F", "I", "B", "UP", "RUF"]
 python_version = "3.12"
 strict = true
 warn_unreachable = true
+files = ["src", "tests"]
+
+# These ship no usable type information; their surface is confined to
+# panl.models.tokenizer and the Arrow/pandas boundaries.
+[[tool.mypy.overrides]]
+module = ["transformers.*", "transformer_lens.*", "pyarrow.*", "pandas.*"]
+ignore_missing_imports = true
 

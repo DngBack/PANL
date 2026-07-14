@@ -1,0 +1,7 @@
+# Smoke model. Used to validate token positions, hooks, schemas and tests before any
+# 7B time is spent. Never used for a reported result.
+model_id: Qwen/Qwen2.5-0.5B-Instruct
+revision: main
+dtype: bfloat16
+prompt_style: chat
+role: smoke

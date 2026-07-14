@@ -1,0 +1,229 @@
+{
+  "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+  "style": "chat",
+  "template_hash": "1759f5f1931e1e70",
+  "confidence_classes": {
+    "high_token_id": 1550,
+    "low_token_id": 3347,
+    "high_token": "Ġhigh",
+    "low_token": "Ġlow"
+  },
+  "cases": [
+    {
+      "question": "What is the capital of France?",
+      "answer": "Paris",
+      "prompt_sha256": "09cd60b44fbc32d116b2f525df0e58e6d4172126e811240cee4d4a0f2057cb0b",
+      "n_tokens": 78,
+      "indices": {
+        "AC": 72,
+        "LAT": 73,
+        "PANL": 74,
+        "PANL1": 75,
+        "CC": 77
+      },
+      "token_ids": {
+        "AC": 25,
+        "LAT": 12095,
+        "PANL": 198,
+        "PANL1": 15578,
+        "CC": 25
+      },
+      "tokens": {
+        "AC": ":",
+        "LAT": "ĠParis",
+        "PANL": "Ċ",
+        "PANL1": "Conf",
+        "CC": ":"
+      }
+    },
+    {
+      "question": "Which city is the capital of Australia?",
+      "answer": "Canberra",
+      "prompt_sha256": "9cba0e5c64bb1a6be889da6859df47990569c25c7d7e3d880f314ce2bd336fb8",
+      "n_tokens": 79,
+      "indices": {
+        "AC": 73,
+        "LAT": 74,
+        "PANL": 75,
+        "PANL1": 76,
+        "CC": 78
+      },
+      "token_ids": {
+        "AC": 25,
+        "LAT": 68790,
+        "PANL": 198,
+        "PANL1": 15578,
+        "CC": 25
+      },
+      "tokens": {
+        "AC": ":",
+        "LAT": "ĠCanberra",
+        "PANL": "Ċ",
+        "PANL1": "Conf",
+        "CC": ":"
+      }
+    },
+    {
+      "question": "Name the capital city of Iceland.",
+      "answer": "Reykjavík",
+      "prompt_sha256": "6be76f8e73104f27e747aeb3a52a47c5c747468ca39ee9c899fa6d48394b6d9b",
+      "n_tokens": 82,
+      "indices": {
+        "AC": 72,
+        "LAT": 77,
+        "PANL": 78,
+        "PANL1": 79,
+        "CC": 81
+      },
+      "token_ids": {
+        "AC": 25,
+        "LAT": 74,
+        "PANL": 198,
+        "PANL1": 15578,
+        "CC": 25
+      },
+      "tokens": {
+        "AC": ":",
+        "LAT": "k",
+        "PANL": "Ċ",
+        "PANL1": "Conf",
+        "CC": ":"
+      }
+    },
+    {
+      "question": "What is the official currency of Japan?",
+      "answer": "Japanese yen",
+      "prompt_sha256": "6402cef25103f378fc2feecccaba6749b6ad31817c81cde1f809b009afa60c75",
+      "n_tokens": 80,
+      "indices": {
+        "AC": 73,
+        "LAT": 75,
+        "PANL": 76,
+        "PANL1": 77,
+        "CC": 79
+      },
+      "token_ids": {
+        "AC": 25,
+        "LAT": 57340,
+        "PANL": 198,
+        "PANL1": 15578,
+        "CC": 25
+      },
+      "tokens": {
+        "AC": ":",
+        "LAT": "Ġyen",
+        "PANL": "Ċ",
+        "PANL1": "Conf",
+        "CC": ":"
+      }
+    },
+    {
+      "question": "Who wrote Nineteen Eighty-Four?",
+      "answer": "George Orwell",
+      "prompt_sha256": "e21b9b88faaa739a645bcdae844a12407a97653fffc2a26db313a27fee6291be",
+      "n_tokens": 82,
+      "indices": {
+        "AC": 75,
+        "LAT": 77,
+        "PANL": 78,
+        "PANL1": 79,
+        "CC": 81
+      },
+      "token_ids": {
+        "AC": 25,
+        "LAT": 82753,
+        "PANL": 198,
+        "PANL1": 15578,
+        "CC": 25
+      },
+      "tokens": {
+        "AC": ":",
+        "LAT": "ĠOrwell",
+        "PANL": "Ċ",
+        "PANL1": "Conf",
+        "CC": ":"
+      }
+    },
+    {
+      "question": "Who wrote Catch-22?",
+      "answer": "Joseph Heller",
+      "prompt_sha256": "8a7f492b5bca944bf684109e90f8e621233dd7f8da2eab2b7e3b512c4179b680",
+      "n_tokens": 79,
+      "indices": {
+        "AC": 72,
+        "LAT": 74,
+        "PANL": 75,
+        "PANL1": 76,
+        "CC": 78
+      },
+      "token_ids": {
+        "AC": 25,
+        "LAT": 92793,
+        "PANL": 198,
+        "PANL1": 15578,
+        "CC": 25
+      },
+      "tokens": {
+        "AC": ":",
+        "LAT": "ĠHeller",
+        "PANL": "Ċ",
+        "PANL1": "Conf",
+        "CC": ":"
+      }
+    },
+    {
+      "question": "Who invented the Rubik's Cube?",
+      "answer": "Ernő Rubik",
+      "prompt_sha256": "732af9677842176f650b9bbf9343f3e30551dff6e92647e5a048f826bd8b63f9",
+      "n_tokens": 83,
+      "indices": {
+        "AC": 73,
+        "LAT": 78,
+        "PANL": 79,
+        "PANL1": 80,
+        "CC": 82
+      },
+      "token_ids": {
+        "AC": 25,
+        "LAT": 1579,
+        "PANL": 198,
+        "PANL1": 15578,
+        "CC": 25
+      },
+      "tokens": {
+        "AC": ":",
+        "LAT": "ik",
+        "PANL": "Ċ",
+        "PANL1": "Conf",
+        "CC": ":"
+      }
+    },
+    {
+      "question": "What is the capital of France?",
+      "answer": "Tokyo",
+      "prompt_sha256": "62f78da62943032d2ba79e55063d06186bf5cf5f4775777775e04f87bc967301",
+      "n_tokens": 78,
+      "indices": {
+        "AC": 72,
+        "LAT": 73,
+        "PANL": 74,
+        "PANL1": 75,
+        "CC": 77
+      },
+      "token_ids": {
+        "AC": 25,
+        "LAT": 26194,
+        "PANL": 198,
+        "PANL1": 15578,
+        "CC": 25
+      },
+      "tokens": {
+        "AC": ":",
+        "LAT": "ĠTokyo",
+        "PANL": "Ċ",
+        "PANL1": "Conf",
+        "CC": ":"
+      }
+    }
+  ]
+}

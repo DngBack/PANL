@@ -1,0 +1,35 @@
+# E0 pilot on the primary model: 200 blocks, per plan section E0.
+#
+# E0 runs on `train` only. The test set is opened once, by the final E1-E3 figures; spending
+# it on a pipeline check would be spending it for nothing.
+experiment: e0
+
+model:
+  model_id: Qwen/Qwen2.5-7B-Instruct
+  revision: main
+  dtype: bfloat16
+  prompt_style: chat
+  role: primary
+
+quadruples: data/processed/quadruples.parquet
+splits: [train]
+batch_size: 32
+
+# null = every train block, currently 140.
+#
+# The plan calls for a 200-block pilot. The train split holds 140 blocks at
+# `pairings_per_fact: 2`, and the two ways to reach 200 are both worse than running on 140:
+# drawing on validation would spend a split on a pipeline check, and raising
+# `pairings_per_fact` to 3 would tie the blocks together more tightly, which is exactly the
+# independence the block bootstrap depends on. E0 is a harness check, not an estimate that
+# has to hit a preregistered precision -- 140 blocks is far past what its gates need. E1 sets
+# its own sample size by power analysis anyway.
+n_blocks: null
+
+# Empty sweeps every layer and every semantic position.
+patch_layers: []
+patch_positions: [AC, LAT, PANL, PANL1, CC]
+
+seed: 20260714
+n_boot: 10000
+output_root: outputs

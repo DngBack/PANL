@@ -227,3 +227,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# PANL experiment artifacts
+data/raw/
+data/interim/
+data/processed/
+outputs/
+!tests/fixtures/

@@ -1,0 +1,31 @@
+# Tier-1 controlled facts: capitals, currencies, authors, inventors.
+#
+# `inventor_of` is the held-out family. It is the right one to hold out because its answers
+# are people and its subjects are artifacts, so it shares no answer entities with the three
+# geographic/literary families -- a model that generalizes to it is generalizing across the
+# relation, not re-using memorized entities.
+#
+# pairings_per_fact trades block count against split independence: each extra pairing round
+# adds edges to the identity graph, and once the graph fuses into one component the splits
+# collapse. 2 is comfortably below that threshold for this fact base.
+tier: 1
+seed: 20260714
+
+families:
+  - capital_of
+  - currency_of
+  - author_of
+  - inventor_of
+
+pairings_per_fact: 2
+templates_per_family: 3
+
+family_holdout:
+  - inventor_of
+
+split_ratios:
+  train: 0.70
+  validation: 0.15
+  test: 0.15
+
+output: data/processed/quadruples.parquet

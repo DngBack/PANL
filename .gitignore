@@ -206,6 +206,17 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
+# PANL experiment artifacts
+data/raw/
+data/interim/
+data/processed/
+outputs/
+artifacts/
+*.zarr/
+*.safetensors
+*.pt
+*.pth
+
 # PyPI configuration file
 .pypirc
 

@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "panl"
+version = "0.1.0"
+description = "Experiments on question-answer interaction in post-answer confidence states"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+dependencies = [
+    "accelerate>=1.10",
+    "datasets>=4.0",
+    "einops>=0.8",
+    "fsspec>=2025.7",
+    "numpy>=2.2",
+    "pandas>=2.3",
+    "pyarrow>=20",
+    "pydantic>=2.11",
+    "pyyaml>=6.0",
+    "rich>=14.0",
+    "safetensors>=0.5",
+    "scikit-learn>=1.7",
+    "scipy>=1.15",
+    "statsmodels>=0.14",
+    "torch>=2.7",
+    "tqdm>=4.67",
+    "transformer-lens>=3.0",
+    "transformers>=5.0",
+    "typer>=0.16",
+    "zarr>=3.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.16",
+    "pre-commit>=4.2",
+    "pytest>=8.4",
+    "pytest-cov>=6.2",
+    "ruff>=0.12",
+]
+analysis = [
+    "ipykernel>=6.30",
+    "jupyterlab>=4.4",
+    "matplotlib>=3.10",
+    "seaborn>=0.13",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/panl"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+
